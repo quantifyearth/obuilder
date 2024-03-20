@@ -1,0 +1,47 @@
+opam-version: "2.0"
+maintainer: ["Thomas Gazagnaire <thomas@gazagnaire.org>"]
+authors: ["Thomas Gazagnaire <thomas@gazagnaire.org>"]
+homepage: "https://github.com/samoht/sweet"
+bug-reports: "https://github.com/samoht/sweet/issues"
+license: "ISC"
+build: [
+ ["dune" "subst"] {dev}
+ ["dune" "build" "-p" name "-j" jobs]
+ ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
+depends: [
+  "ocaml"   {>= "5.00.0"}
+  "dune"    {>= "3.8.0"}
+  "yojson"
+  "ppx_deriving_yojson"
+  "digestif"
+  "decompress"
+  "base64"
+  "cmdliner"
+  "logs"
+  "astring"
+  "dune-build-info"
+  "mirage-crypto-rng-eio"
+  "cohttp"
+  "cohttp-eio"
+  "progress"
+  "tls-eio"
+  "eio" {>= "0.13"}
+  "tar-eio"
+  "eio_main"
+  "xdg"
+  "printbox"
+  "printbox-text"
+  "alcotest" {with-test}
+]
+
+pin-depends: [
+  [ "cohttp-eio.dev" "git+https://github.com/mirage/ocaml-cohttp.git#master"]
+  [ "cohttp.dev"     "git+https://github.com/mirage/ocaml-cohttp.git#master"]
+  [ "http.dev"       "git+https://github.com/mirage/ocaml-cohttp.git#master"]
+  [ "mirage-crypto-rng.0.11.2" "git+https://github.com/dinosaure/mirage-crypto.git#parallel"]
+  [ "tar.dev"        "git+https://github.com/samoht/ocaml-tar.git#eio-0.12"]
+  [ "tar-eio.dev"    "git+https://github.com/samoht/ocaml-tar.git#eio-0.12"]
+]
+
+synopsis: "Tools to manage OCI and Docker images"

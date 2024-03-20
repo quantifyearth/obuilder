@@ -1,0 +1,16 @@
+(executable
+ (public_name image)
+ (name main)
+ (libraries
+  container-image
+  printbox
+  printbox-text
+  eio_main
+  xdg
+  cmdliner
+  logs
+  logs.cli
+  dune-build-info
+  fmt.cli
+  logs.fmt
+  fmt.tty))
