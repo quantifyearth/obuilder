@@ -70,11 +70,18 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config result_tmp =
   let proc_id = ref None in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
-    let pp f = Os.pp_cmd f ("", config.Config.argv) in
+    let pp f = match config.Config.argv with
+      | `Run args -> Os.pp_cmd f ("", args) 
+      | `Terminal -> Os.pp_cmd f ("", [ "TERMINAL" ])
+    in
     Os.pread @@ Macos.get_tmpdir ~user >>= fun tmpdir ->
     let tmpdir = List.hd (String.split_on_char '\n' tmpdir) in
     let env = ("TMPDIR", tmpdir) :: osenv in
-    let cmd = run_as ~env ~user ~cmd:config.Config.argv in
+    let cmd =
+      match config.Config.argv with
+      | `Run args -> run_as ~env ~user ~cmd:args
+      | `Terminal -> failwith "Terminal's are not supported on macOS use Linux"
+    in
     Os.ensure_dir config.Config.cwd;
     let pid, proc = Os.open_process ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd in
     proc_id := Some pid;
@@ -100,6 +107,9 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config result_tmp =
     if Lwt.is_sleeping cancelled then
       Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
     else Lwt_result.fail `Cancelled)
+
+  let shell ~cancelled:_ ?stdin:_ ?unix_sock:_ _t _config _results_dir =
+    failwith "Shell's are not supported on macOS, use Linux"
 
 let create ~state_dir:_ c =
   Lwt.return {

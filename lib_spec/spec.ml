@@ -86,6 +86,7 @@ let sexp_of_user x : Sexplib.Sexp.t =
   | x -> Fmt.failwith "Invalid op: %a" Sexplib.Sexp.pp_hum x
 
 type run = {
+  rom : Rom.t list [@sexp.list];
   cache : Cache.t list [@sexp.list];
   network : string list [@sexp.list];
   secrets : Secret.t list [@sexp.list];
@@ -142,7 +143,7 @@ let op_of_sexp x =
 
 type t = {
   child_builds : (string * t) list;
-  from : string;
+  from : [ `Image of string | `Build of string ];
   ops : op list;
 }
 
@@ -152,7 +153,8 @@ let rec sexp_of_t { child_builds; from; ops } =
         List [ Atom "build"; Atom name; sexp_of_t spec ]
       )
   in
-  List (child_builds @ List [ Atom "from"; Atom from ] :: List.map sexp_of_op ops)
+  let from = match from with `Image s -> [ Atom "from"; Atom s ] | `Build s -> [ Atom "base"; Atom s ] in
+  List (child_builds @ List from :: List.map sexp_of_op ops)
 
 let rec t_of_sexp = function
   | Atom _ as x -> Fmt.failwith "Invalid spec: %a" Sexplib.Sexp.pp_hum x
@@ -161,9 +163,12 @@ let rec t_of_sexp = function
       | List [ Atom "build"; Atom name; child_spec ] :: xs ->
         let child = (name, t_of_sexp child_spec) in
         aux (child :: acc) xs
+      | List [ Atom "base"; Atom from ] :: ops ->
+        let child_builds = List.rev acc in
+        { child_builds; from = `Build from; ops = List.map op_of_sexp ops }
       | List [ Atom "from"; Atom from ] :: ops ->
         let child_builds = List.rev acc in
-        { child_builds; from; ops = List.map op_of_sexp ops }
+        { child_builds; from = `Image from; ops = List.map op_of_sexp ops }
       | x :: _ -> Fmt.failwith "Invalid spec item: %a" Sexplib.Sexp.pp_hum x
       | [] -> Fmt.failwith "Invalid spec: missing (from)"
     in
@@ -172,7 +177,7 @@ let rec t_of_sexp = function
 let comment fmt = fmt |> Printf.ksprintf (fun c -> `Comment c)
 let workdir x = `Workdir x
 let shell xs = `Shell xs
-let run ?(cache=[]) ?(network=[]) ?(secrets=[]) fmt = fmt |> Printf.ksprintf (fun x -> `Run { shell = x; cache; network; secrets })
+let run ?(rom=[]) ?(cache=[]) ?(network=[]) ?(secrets=[]) fmt = fmt |> Printf.ksprintf (fun x -> `Run { shell = x; cache; network; secrets; rom })
 let copy ?(from=`Context) ?(exclude=[]) src ~dst = `Copy { from; src; dst; exclude }
 let env k v = `Env (k, v)
 let user_unix ~uid ~gid = `User (`Unix { uid; gid })

@@ -67,6 +67,21 @@ let build () store spec native_conf docker_conf src_dir secrets =
       exit 1
   end
 
+let run () (_, store) conf id =
+  Lwt_main.run begin
+    create_builder store conf >>= fun (Builder ((module Builder), builder)) ->
+    Fun.flip Lwt.finalize (fun () -> Builder.finish builder) @@ fun () ->
+    let _, v = Builder.shell builder id in
+    v >>= fun v -> match v with
+    | Ok _ -> Lwt.return_unit
+    | Error `Cancelled ->
+      Fmt.epr "Cancelled at user's request@.";
+      exit 1
+    | Error (`Msg m) ->
+      Fmt.epr "Build step failed: %s@." m;
+      exit 1
+  end
+
 let healthcheck () store native_conf docker_conf =
   Lwt_main.run begin
     select_backend store native_conf docker_conf
@@ -202,7 +217,13 @@ let healthcheck =
     Term.(const healthcheck $ setup_log $ store $ Native_sandbox.cmdliner
           $ Docker_sandbox.cmdliner)
 
-let cmds = [build; delete; clean; dockerfile; healthcheck]
+let run =
+  let doc = "Run a shell inside a container" in
+  let info = Cmd.info "run" ~doc in
+  Cmd.v info
+    Term.(const run $ setup_log $ store $ Native_sandbox.cmdliner $ id)
+
+let cmds = [build; run; delete; clean; dockerfile; healthcheck]
 
 let () =
   let doc = "a command-line interface for OBuilder" in

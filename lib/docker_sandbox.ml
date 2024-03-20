@@ -23,6 +23,9 @@ type t = {
   docker_network : string;   (* Default network, overridden by network stanza *)
 }
 
+let shell ~cancelled:_ ?stdin:_ ?unix_sock:_ _t _config _results_dir =
+  failwith "Shell's are not supported on docker, use runc + linux"
+
 type config = {
   cpus : float;
   isolation : isolation;
@@ -32,6 +35,10 @@ type config = {
 
 let secrets_guest_root = if Sys.win32 then {|C:\ProgramData\obuilder\|} else "/run/secrets/obuilder"
 let secret_dir id = "secrets" / string_of_int id
+
+let not_a_terminal = function
+  | `Run args -> args
+  | `Terminal -> failwith "Terminals not supported by the docker sandbox"
 
 module Docker_config = struct
   let make {Config.cwd; argv; hostname; user; env; mounts; network; mount_secrets; entrypoint}
@@ -61,7 +68,7 @@ module Docker_config = struct
       "--workdir"; cwd;
       "--entrypoint"; Option.get entrypoint;
     ] @ memory @ user @ env @ mounts @ mount_secrets @ network in
-    docker_argv, argv
+    docker_argv, not_a_terminal argv
 end
 
 let secrets_layer ~log mount_secrets base_image container docker_argv =
@@ -137,7 +144,7 @@ let run ~cancelled ?stdin ~log t config (id:S.id) =
              Lwt.return_unit
          in
          let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
-         Docker.Cmd_log.run_result ~log ?stdin ~name:container docker_argv base_image argv)
+          Docker.Cmd_log.run_result ~log ?stdin ~name:container docker_argv base_image argv)
   in
   Lwt.on_termination cancelled (fun () ->
       let aux () =
@@ -174,7 +181,7 @@ let manifest_from_build t ~base ~exclude src workdir user =
     let entrypoint, argv = Docker.setup_command ~entp:Docker.(bash_entrypoint (obuilder_libexec ())) ~cmd:[argv] in
     Config.v
       ~cwd:workdir
-      ~argv
+      ~argv:(`Run argv)
       ~hostname
       ~user
       ~env:["PATH", if Sys.win32 then Docker.mount_point_inside_unix // Docker.obuilder_libexec () else "/bin:/usr/bin"]
@@ -185,10 +192,10 @@ let manifest_from_build t ~base ~exclude src workdir user =
       ()
   in
   let docker_args, args = Docker_config.make config t in
-  Docker.Cmd.run_pread_result ~rm:true docker_args (Docker.docker_image base) args >>!= fun manifests ->
-  match Parsexp.Many.parse_string manifests with
-  | Ok ts -> List.rev_map Manifest.t_of_sexp ts |> Lwt_result.return
-  | Error e -> Lwt_result.fail (`Msg (Parsexp.Parse_error.message e))
+    Docker.Cmd.run_pread_result ~rm:true docker_args (Docker.docker_image base) args >>!= fun manifests ->
+    match Parsexp.Many.parse_string manifests with
+    | Ok ts -> List.rev_map Manifest.t_of_sexp ts |> Lwt_result.return
+    | Error e -> Lwt_result.fail (`Msg (Parsexp.Parse_error.message e))
 
 let manifest_files_from op fd =
   let copy_root manifest =
@@ -213,7 +220,7 @@ let tarball_from_build t ~log ~files_from ~tar workdir user id =
   let config =
     Config.v
       ~cwd:workdir
-      ~argv
+      ~argv:(`Run argv)
       ~hostname
       ~user
       ~env:[]
@@ -229,7 +236,7 @@ let tarball_from_build t ~log ~files_from ~tar workdir user id =
      reads the end-of-tar magic sequence, then we can close the output pipe of
      the Docker process and ignore the error. *)
   let is_success = if Sys.win32 then Some (function 0 | 1 -> true | _ -> false) else None in
-  Docker.Cmd_log.run' ~log ~stdin:(`FD_move_safely files_from) ~stdout:(`FD_move_safely tar)
+    Docker.Cmd_log.run' ~log ~stdin:(`FD_move_safely files_from) ~stdout:(`FD_move_safely tar)
     ~rm:true ?is_success docker_args (Docker.docker_image id) args
 
 let transform op ~user ~from_tar ~to_untar =
@@ -256,7 +263,7 @@ let untar t ~cancelled ~stdin ~log ?dst_dir id =
     end in
   let config = Config.v
       ~cwd:(if Sys.unix then "/" else "C:/")
-      ~argv
+      ~argv:(`Run argv)
       ~hostname
       ~user:Obuilder_spec.root
       ~env:[]
@@ -413,7 +420,7 @@ let create_tar_volume (t:t) =
       in
 
       let entrypoint, argv = {|C:\Windows\System32\cmd.exe|}, ["/S"; "/C"; {|C:\extract.cmd|}] in
-      Config.v ~cwd:{|C:/|} ~argv ~hostname:""
+      Config.v ~cwd:{|C:/|} ~argv:(`Run argv) ~hostname:""
         ~user:Obuilder_spec.((root_windows :> user))
         ~env:["DESTINATION", destination]
         ~mount_secrets:[]
@@ -439,7 +446,7 @@ let create_tar_volume (t:t) =
       in
 
       let entrypoint, argv = "/bin/sh", ["-c"; ":"] in
-      Config.v ~cwd:"/" ~argv ~hostname:""
+      Config.v ~cwd:"/" ~argv:(`Run argv) ~hostname:""
         ~user:Obuilder_spec.((root_unix :> user))
         ~env:["DESTINATION", destination]
         ~mount_secrets:[]
@@ -449,8 +456,8 @@ let create_tar_volume (t:t) =
         ()
   in
   let docker_args, args = Docker_config.make config t in
-  let* () = Docker.Cmd.run ~rm:true docker_args img args in
-  Docker.Cmd.image (`Remove img)
+    let* () = Docker.Cmd.run ~rm:true docker_args img args in
+    Docker.Cmd.image (`Remove img)
 
 let create (c : config) =
   let t = { docker_cpus = c.cpus; docker_isolation = c.isolation;

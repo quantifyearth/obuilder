@@ -42,7 +42,7 @@ let pp_mount_secret ~ctx f { Secret.id; target; buildkit_options } =
   in
   Fmt.pf f "%a" Fmt.(list ~sep:(any ",") pp_pair) buildkit_options
 
-let pp_run ~escape ~ctx f { Spec.cache; shell; secrets; network = _ } =
+let pp_run ~escape ~ctx f { Spec.cache; shell; secrets; network = _; rom = _ } =
   Fmt.pf f "RUN %a%a%a"
     Fmt.(list (pp_mount_secret ~ctx ++ const string " ")) secrets
     Fmt.(list (pp_cache ~ctx ++ const string " ")) cache
@@ -100,6 +100,11 @@ let rec convert ~buildkit ~escape ~ctx f (name, { Spec.child_builds; from; ops }
       convert ~buildkit ~escape ~ctx f (Some name, spec);
       Format.pp_print_newline f ();
     );
+  let from =
+    match from with
+    | `Image s -> s
+    | `Build _ -> failwith "Not a docker image!!!"
+  in
   Fmt.pf f "@[<h>FROM %s%a@]@." from Fmt.(option (const string " as " ++ string)) name;
   let (_ : ctx) = List.fold_left (fun ctx op ->
       Format.pp_open_hbox f ();
