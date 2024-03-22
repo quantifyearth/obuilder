@@ -22,7 +22,6 @@ let bytes_to_size ?(decimals = 2) ppf = function
 
 
 external lchown : string -> int -> int -> unit = "container_image_unix_lchown"
-external lchmod : string -> int -> unit = "container_image_unix_lchmod"
 
 let checkout_layer ~sw ~cache layer dir =
   let fd = Cache.Blob.get_fd ~sw cache layer in
@@ -51,7 +50,7 @@ let checkout_layer ~sw ~cache layer dir =
           let path = Eio.Path.native_exn path in
           lchown path hdr.user_id hdr.group_id;
           (* For setting the user bit etc. *)
-          (if hdr.link_indicator <> Symbolic then lchmod path file_mode);
+          (if hdr.link_indicator <> Symbolic then Unix.chmod path file_mode);
           (* Setting times *)
           let access_time = 
             Option.value ~default:0. @@
