@@ -42,6 +42,8 @@ depends: [
   "fpath"
   "extunix" {>= "0.4.0"}
   "ocaml" {>= "4.14.1"}
+  "eio_main"
+  "container-image"
   "alcotest-lwt" {>= "1.7.0" & with-test}
   "odoc" {with-doc}
 ]
@@ -60,3 +62,6 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocurrent/obuilder.git"
+pin-depends:[
+  [ "container-image.dev" "file:./vendor/container-image" ]
+]

@@ -3,7 +3,7 @@
   (name main)
   (package obuilder)
   (preprocess (pps ppx_deriving.show))
-  (libraries lwt lwt.unix fmt fmt.cli fmt.tty tar-unix obuilder cmdliner logs.fmt logs.cli))
+  (libraries lwt lwt.unix fmt fmt.cli fmt.tty tar-unix obuilder cmdliner logs.fmt logs.cli eio_main))
 
 
 ; (rule

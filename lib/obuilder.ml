@@ -20,6 +20,7 @@ module Docker_store = Docker_store
 module Zfs_clone = Zfs_clone
 module Docker_extract = Docker.Extract
 module Archive_extract = Archive_extract
+module Container_image_extract = Container_image_extract
 
 (** {2 Sandboxes} *)
 

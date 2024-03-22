@@ -20,6 +20,10 @@ let bytes_to_size ?(decimals = 2) ppf = function
       let r = n /. Float.pow 1024. i in
       Format.fprintf ppf "%.*f %s" decimals r sizes.(int_of_float i)
 
+
+external lchown : string -> int -> int -> unit = "container_image_unix_lchown"
+external lchmod : string -> int -> unit = "container_image_unix_lchmod"
+
 let checkout_layer ~sw ~cache layer dir =
   let fd = Cache.Blob.get_fd ~sw cache layer in
   let fd = Tar_eio_gz.of_source fd in
@@ -29,25 +33,48 @@ let checkout_layer ~sw ~cache layer dir =
     (fun hdr src () ->
       let path = dir / hdr.file_name in
       mkdir_parent path;
-      Eio.Switch.run @@ fun sw ->
-      let dst =
-        Eio.Path.open_out ~sw ~append:false ~create:(`If_missing hdr.file_mode)
-          path
-      in
-      Eio.Flow.copy src dst;
-      Fmt.pr "%s (%s, %a)\n%!" hdr.file_name
-        (Tar.Header.Link.to_string hdr.link_indicator)
-        (bytes_to_size ~decimals:2)
-        hdr.file_size)
+      let file_mode = hdr.file_mode in
+      let () = 
+        match hdr.link_indicator with
+        | Directory -> Eio.Path.mkdir ~perm:file_mode path
+        | Symbolic ->
+          Eio_unix.run_in_systhread ~label:"symlink" (fun () -> Unix.symlink hdr.link_name (Eio.Path.native_exn path))
+        | _ ->
+            Eio.Switch.run @@ fun sw ->
+            let dst =
+              Eio.Path.open_out ~sw ~append:false ~create:(`If_missing file_mode)
+                path
+            in
+            Eio.Flow.copy src dst;
+        in
+        Eio_unix.run_in_systhread ~label:"lchown+chmod+utimes" (fun () ->
+          let path = Eio.Path.native_exn path in
+          lchown path hdr.user_id hdr.group_id;
+          (* For setting the user bit etc. *)
+          (if hdr.link_indicator <> Symbolic then lchmod path file_mode);
+          (* Setting times *)
+          let access_time = 
+            Option.value ~default:0. @@
+            Option.bind hdr.extended (fun e -> Option.map Int64.to_float e.access_time) 
+          in
+          let mod_time = hdr.mod_time |> Int64.to_float in
+          (if hdr.link_indicator <> Symbolic then Unix.utimes path access_time mod_time)
+        )
+      )
     fd ()
 
 let checkout_layers ~sw ~cache ~dir layers =
-  List.iteri
-    (fun i layer ->
-      let dir = Eio.Path.(dir / string_of_int i) in
-      let d = Descriptor.digest layer in
-      checkout_layer ~sw ~cache d dir)
-    layers
+  match layers with
+  | [ layer ] ->
+    let d = Descriptor.digest layer in
+    checkout_layer ~sw ~cache d dir
+  | layers ->
+    List.iteri
+      (fun i layer ->
+        let dir = Eio.Path.(dir / string_of_int i) in
+        let d = Descriptor.digest layer in
+        checkout_layer ~sw ~cache d dir)
+      layers
 
 let checkout_docker_manifest ~sw ~cache ~dir m =
   checkout_layers ~sw ~cache ~dir (Manifest.Docker.layers m)
@@ -55,15 +82,16 @@ let checkout_docker_manifest ~sw ~cache ~dir m =
 let checkout_oci_manifest ~sw ~cache ~dir m =
   checkout_layers ~sw ~cache ~dir (Manifest.OCI.layers m)
 
-let checkout_docker_manifests ~sw ~cache ~dir ds =
+let checkout_docker_manifests ~sw ~cache ~dir img ds =
   let ms =
     List.map
       (fun d ->
         let digest = Descriptor.digest d in
-        let str = Cache.Blob.get_string cache digest in
-        match Manifest.Docker.of_string str with
-        | Ok m -> m
-        | Error (`Msg e) -> failwith e)
+        let img = Image.v ~digest img in
+        let manifest = Cache.Manifest.get cache img in
+        match manifest with
+        | `Docker_manifest mani -> mani
+        | _ -> failwith "Exptected single docker manifest")
       ds
   in
   List.iteri
@@ -89,17 +117,20 @@ let checkout_oci_manifests ~sw ~cache ~dir ds =
       checkout_oci_manifest ~sw ~cache ~dir m)
     ms
 
-let checkout_docker_manifest_list ~sw ~cache ~dir l =
-  checkout_docker_manifests ~sw ~cache ~dir (Manifest_list.manifests l)
+let checkout_docker_manifest_list ~sw ~cache ~dir img l =
+  checkout_docker_manifests ~sw ~cache ~dir img (Manifest_list.manifests l)
 
 let checkout_oci_index ~sw ~cache ~dir i =
   checkout_oci_manifests ~sw ~cache ~dir (Index.manifests i)
 
-let checkout ~cache ~root i =
-  let dir = root / Image.to_string i in
+let checkout ?(only_rootfs=false) ~cache ~root i =
+  let dir = 
+    if only_rootfs then root else root / Image.to_string i 
+  in
   Eio.Switch.run @@ fun sw ->
   match Cache.Manifest.get cache i with
   | `Docker_manifest m -> checkout_docker_manifest ~sw ~cache ~dir m
-  | `Docker_manifest_list m -> checkout_docker_manifest_list ~sw ~cache ~dir m
+  | `Docker_manifest_list m ->
+      checkout_docker_manifest_list ~sw ~cache ~dir (Image.repository i) m
   | `OCI_index i -> checkout_oci_index ~sw ~cache ~dir i
   | `OCI_manifest m -> checkout_oci_manifest ~sw ~cache ~dir m

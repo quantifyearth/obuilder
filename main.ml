@@ -17,9 +17,16 @@ let log tag msg =
   | `Note -> Fmt.pr "%a@." Fmt.(styled (`Fg `Yellow) string) msg
   | `Output -> output_string stdout msg; flush stdout
 
-let create_builder store_spec conf =
+let create_builder env store_spec conf =
+  let module T = struct
+    let fs = Eio.Stdenv.fs env
+    let net = (Eio.Stdenv.net env :> [`Generic] Eio.Net.ty Eio.Net.t)
+    let domain_mgr = Eio.Stdenv.domain_mgr env
+    let progress = true
+  end in
+  let module Fetcher = Obuilder.Container_image_extract.Make (T) in
   store_spec >>= fun (Store_spec.Store ((module Store), store)) ->
-  let module Builder = Obuilder.Builder (Store) (Native_sandbox) (Docker_extract) in
+  let module Builder = Obuilder.Builder (Store) (Native_sandbox) (Fetcher) in
   Native_sandbox.create ~state_dir:(Store.state_dir store / "sandbox") conf >|= fun sandbox ->
   let builder = Builder.v ~store ~sandbox in
   Builder ((module Builder), builder)
@@ -37,14 +44,14 @@ let read_whole_file path =
   let len = in_channel_length ic in
   really_input_string ic len
 
-let select_backend (sandbox, store_spec) native_conf docker_conf =
+let select_backend env (sandbox, store_spec) native_conf docker_conf =
   match sandbox with
-  | `Native -> create_builder store_spec native_conf
+  | `Native -> create_builder env store_spec native_conf
   | `Docker -> create_docker_builder store_spec docker_conf
 
-let build () store spec native_conf docker_conf src_dir secrets =
+let build env () store spec native_conf docker_conf src_dir secrets =
   Lwt_main.run begin
-    select_backend store native_conf docker_conf
+    select_backend env store native_conf docker_conf
     >>= fun (Builder ((module Builder), builder)) ->
     Fun.flip Lwt.finalize (fun () -> Builder.finish builder) @@ fun () ->
     let spec =
@@ -67,9 +74,9 @@ let build () store spec native_conf docker_conf src_dir secrets =
       exit 1
   end
 
-let run () (_, store) conf id =
+let run env () (_, store) conf id =
   Lwt_main.run begin
-    create_builder store conf >>= fun (Builder ((module Builder), builder)) ->
+    create_builder env store conf >>= fun (Builder ((module Builder), builder)) ->
     Fun.flip Lwt.finalize (fun () -> Builder.finish builder) @@ fun () ->
     let _, v = Builder.shell builder id in
     v >>= fun v -> match v with
@@ -82,9 +89,9 @@ let run () (_, store) conf id =
       exit 1
   end
 
-let healthcheck () store native_conf docker_conf =
+let healthcheck env () store native_conf docker_conf =
   Lwt_main.run begin
-    select_backend store native_conf docker_conf
+    select_backend env store native_conf docker_conf
     >>= fun (Builder ((module Builder), builder)) ->
     Fun.flip Lwt.finalize (fun () -> Builder.finish builder) @@ fun () ->
     Builder.healthcheck builder >|= function
@@ -95,17 +102,17 @@ let healthcheck () store native_conf docker_conf =
       Fmt.pr "Healthcheck passed@."
   end
 
-let delete () store native_conf docker_conf id =
+let delete env () store native_conf docker_conf id =
   Lwt_main.run begin
-    select_backend store native_conf docker_conf
+    select_backend env store native_conf docker_conf
     >>= fun (Builder ((module Builder), builder)) ->
     Fun.flip Lwt.finalize (fun () -> Builder.finish builder) @@ fun () ->
     Builder.delete builder id ~log:(fun id -> Fmt.pr "Removing %s@." id)
   end
 
-let clean () store native_conf docker_conf =
+let clean env () store native_conf docker_conf =
   Lwt_main.run begin
-    select_backend store native_conf docker_conf
+    select_backend env store native_conf docker_conf
     >>= fun (Builder ((module Builder), builder)) ->
     Fun.flip Lwt.finalize (fun () -> Builder.finish builder) @@ begin fun () ->
       let now = Unix.(gmtime (gettimeofday ())) in
@@ -167,25 +174,25 @@ let secrets =
      ~docv:"SECRET"
      ["secret"])
 
-let build =
+let build env =
   let doc = "Build a spec file." in
   let info = Cmd.info "build" ~doc in
   Cmd.v info
-    Term.(const build $ setup_log $ store $ spec_file $ Native_sandbox.cmdliner
+    Term.(const (build env) $ setup_log $ store $ spec_file $ Native_sandbox.cmdliner
           $ Docker_sandbox.cmdliner $ src_dir $ secrets)
 
-let delete =
+let delete env =
   let doc = "Recursively delete a cached build result." in
   let info = Cmd.info "delete" ~doc in
   Cmd.v info
-    Term.(const delete $ setup_log $ store $ Native_sandbox.cmdliner
+    Term.(const (delete env) $ setup_log $ store $ Native_sandbox.cmdliner
           $ Docker_sandbox.cmdliner $ id)
 
-let clean =
+let clean env =
   let doc = "Clean all cached build results." in
   let info = Cmd.info "clean" ~doc in
   Cmd.v info
-    Term.(const clean $ setup_log $ store $ Native_sandbox.cmdliner
+    Term.(const (clean env) $ setup_log $ store $ Native_sandbox.cmdliner
           $ Docker_sandbox.cmdliner)
 
 let buildkit =
@@ -210,22 +217,24 @@ let dockerfile =
   Cmd.v info
     Term.(const dockerfile $ setup_log $ buildkit $ escape $ spec_file)
 
-let healthcheck =
+let healthcheck env =
   let doc = "Perform a self-test" in
   let info = Cmd.info "healthcheck" ~doc in
   Cmd.v info
-    Term.(const healthcheck $ setup_log $ store $ Native_sandbox.cmdliner
+    Term.(const (healthcheck env) $ setup_log $ store $ Native_sandbox.cmdliner
           $ Docker_sandbox.cmdliner)
 
-let run =
+let run env =
   let doc = "Run a shell inside a container" in
   let info = Cmd.info "run" ~doc in
   Cmd.v info
-    Term.(const run $ setup_log $ store $ Native_sandbox.cmdliner $ id)
+    Term.(const (run env) $ setup_log $ store $ Native_sandbox.cmdliner $ id)
 
-let cmds = [build; run; delete; clean; dockerfile; healthcheck]
+let cmds env = [build env; run env; delete env; clean env; dockerfile; healthcheck env]
 
 let () =
+  Eio_main.run @@ fun env ->
+  Mirage_crypto_rng_eio.run (module Mirage_crypto_rng.Fortuna) env @@ fun () ->
   let doc = "a command-line interface for OBuilder" in
   let info = Cmd.info ~doc "obuilder" in
-  exit (Cmd.eval @@ Cmd.group info cmds)
+  exit (Cmd.eval @@ Cmd.group info (cmds env))
