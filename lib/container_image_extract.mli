@@ -8,3 +8,12 @@ module Make (_ : sig
 end) : sig
   include S.FETCHER
 end
+
+val make_fetcher :
+  ?progress:bool ->
+  fs:_ Eio.Path.t ->
+  net:_ Eio.Net.ty Eio.Net.t ->
+  _ Eio.Domain_manager.t ->
+  (module S.FETCHER)
+(** A function that returns a fetcher module *)
+

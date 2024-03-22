@@ -18,13 +18,13 @@ let log tag msg =
   | `Output -> output_string stdout msg; flush stdout
 
 let create_builder env store_spec conf =
-  let module T = struct
-    let fs = Eio.Stdenv.fs env
-    let net = (Eio.Stdenv.net env :> [`Generic] Eio.Net.ty Eio.Net.t)
-    let domain_mgr = Eio.Stdenv.domain_mgr env
-    let progress = true
-  end in
-  let module Fetcher = Obuilder.Container_image_extract.Make (T) in
+  let (module Fetcher) = 
+    Obuilder.Container_image_extract.make_fetcher
+    ~progress:true
+    ~fs:(Eio.Stdenv.fs env)
+    ~net:(Eio.Stdenv.net env)
+    (Eio.Stdenv.domain_mgr env)
+  in
   store_spec >>= fun (Store_spec.Store ((module Store), store)) ->
   let module Builder = Obuilder.Builder (Store) (Native_sandbox) (Fetcher) in
   Native_sandbox.create ~state_dir:(Store.state_dir store / "sandbox") conf >|= fun sandbox ->

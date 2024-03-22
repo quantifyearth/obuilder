@@ -23,8 +23,8 @@
 	    && git reset -q --hard $OPAM_HASH \
 	    && git --no-pager log --no-decorate -n1 --oneline \
 	    && opam update -u"))
-	 ; Copy just the opam file first (helps caching)
-	 (copy (src obuilder-spec.opam obuilder.opam) (dst ./))
+	 ; Copy just the opam file first (helps caching) + container image whilst vendored
+	 (copy (src obuilder-spec.opam obuilder.opam vendor) (dst ./))
 	 (run (shell "opam pin add -yn ."))
 	 ; Install OS package dependencies
 	 (run

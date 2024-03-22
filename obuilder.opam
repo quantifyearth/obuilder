@@ -63,5 +63,5 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocurrent/obuilder.git"
 pin-depends:[
-  [ "container-image.dev" "file:./vendor/container-image" ]
+  [ "container-image.dev" "file://./vendor/container-image" ]
 ]
