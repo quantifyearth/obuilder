@@ -35,9 +35,12 @@ let checkout_layer ~sw ~cache layer dir =
       let file_mode = hdr.file_mode in
       let () = 
         match hdr.link_indicator with
-        | Directory -> Eio.Path.mkdir ~perm:file_mode path
+        | Directory -> (try Eio.Path.mkdir ~perm:file_mode path with Eio.Exn.Io (Eio.Fs.E Already_exists _, _) -> ())
         | Symbolic ->
-          Eio_unix.run_in_systhread ~label:"symlink" (fun () -> Unix.symlink hdr.link_name (Eio.Path.native_exn path))
+          Eio_unix.run_in_systhread ~label:"symlink" (fun () -> 
+            try Unix.symlink hdr.link_name (Eio.Path.native_exn path) with
+            Unix.Unix_error (Unix.EEXIST, _, _) -> ()
+          )
         | _ ->
             Eio.Switch.run @@ fun sw ->
             let dst =
@@ -67,13 +70,12 @@ let checkout_layers ?(top_layer=false) ~sw ~cache ~dir layers =
   | [ layer ] ->
     let d = Descriptor.digest layer in
     checkout_layer ~sw ~cache d dir
-  | layer :: _ when top_layer ->
-    let d = Descriptor.digest layer in
-    checkout_layer ~sw ~cache d dir
   | layers ->
     List.iteri
       (fun i layer ->
-        let dir = Eio.Path.(dir / string_of_int i) in
+        let dir = 
+          if top_layer then dir else
+          Eio.Path.(dir / string_of_int i) in
         let d = Descriptor.digest layer in
         checkout_layer ~sw ~cache d dir)
       layers
