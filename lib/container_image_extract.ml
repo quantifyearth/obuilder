@@ -42,18 +42,22 @@ end) = struct
       let config = 
         Ci.Cache.Blob.get_string cache (Descriptor.digest config)
         |> Config.of_string ~media_type:Media_type.(Docker Docker.Image_config)
-        |> Result.get_ok
       in
-      Config.env config
+      match config with
+      | Ok config -> Config.env config
+      | Error (`Msg m) -> failwith m
     in
     let of_docker_manifest (docker_manifest : Manifest.Docker.t) =
       let config = Manifest.Docker.config docker_manifest in
-      let config = 
+      let config_str = 
         Ci.Cache.Blob.get_string cache (Descriptor.digest config)
-        |> Config.of_string ~media_type:Media_type.(Docker Docker.Image_config)
-        |> Result.get_ok
       in
-      Config.env config
+      let config =
+        config_str |> Config.of_string ~media_type:Media_type.(Docker Docker.Image_config)
+      in
+      match config with
+      | Ok config -> Config.env config
+      | Error (`Msg m) -> failwith (m ^ " : " ^ config_str)
     in
     match (v : Manifest.t) with
   | `Docker_manifest_list _ -> (

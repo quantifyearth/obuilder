@@ -79,7 +79,7 @@ module Docker = struct
     args_escaped : bool option; [@key "ArgsEscaped"] [@default None]
     image : string option; [@key "Image"] [@default None]
     volumes : set; [@key "Volumes"] [@default []]
-    working_dir : string; [@key "WorkingDir"]
+    working_dir : string option; [@key "WorkingDir"] [@default None]
     entrypoint : string list option; [@key "Entrypoint"] [@default None]
     network_disabled : bool; [@key "NetworkDisabled"] [@default false]
     mac_address : string option; [@key "MacAddress"] [@default None]
@@ -89,7 +89,7 @@ module Docker = struct
     stop_timeout : int option; [@key "StopTimeout"] [@default None]
     shell : string list; [@key "Shell"] [@default []]
   }
-  [@@deriving yojson]
+  [@@deriving yojson { strict = false }]
 
   type rootfs = { type_ : string; [@key "type"] diff_ids : Digest.t list }
   [@@deriving yojson]
@@ -127,7 +127,7 @@ module Docker = struct
     rootfs : rootfs;
     history : history list; [@default []]
   }
-  [@@deriving yojson]
+  [@@deriving yojson { strict = false }]
 
   let pp ppf t = pp_json ppf (to_yojson t)
 

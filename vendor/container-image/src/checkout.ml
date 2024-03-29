@@ -62,9 +62,12 @@ let checkout_layer ~sw ~cache layer dir =
       )
     fd ()
 
-let checkout_layers ~sw ~cache ~dir layers =
+let checkout_layers ?(top_layer=false) ~sw ~cache ~dir layers =
   match layers with
   | [ layer ] ->
+    let d = Descriptor.digest layer in
+    checkout_layer ~sw ~cache d dir
+  | layer :: _ when top_layer ->
     let d = Descriptor.digest layer in
     checkout_layer ~sw ~cache d dir
   | layers ->
@@ -75,13 +78,13 @@ let checkout_layers ~sw ~cache ~dir layers =
         checkout_layer ~sw ~cache d dir)
       layers
 
-let checkout_docker_manifest ~sw ~cache ~dir m =
-  checkout_layers ~sw ~cache ~dir (Manifest.Docker.layers m)
+let checkout_docker_manifest ?(only_rootfs=false) ~sw ~cache ~dir m =
+  checkout_layers ~top_layer:only_rootfs ~sw ~cache ~dir (Manifest.Docker.layers m)
 
 let checkout_oci_manifest ~sw ~cache ~dir m =
   checkout_layers ~sw ~cache ~dir (Manifest.OCI.layers m)
 
-let checkout_docker_manifests ~sw ~cache ~dir img ds =
+let checkout_docker_manifests ?(only_rootfs=false) ~sw ~cache ~dir img ds =
   let ms =
     List.map
       (fun d ->
@@ -96,7 +99,7 @@ let checkout_docker_manifests ~sw ~cache ~dir img ds =
   List.iteri
     (fun i m ->
       let dir = dir / string_of_int i in
-      checkout_docker_manifest ~sw ~cache ~dir m)
+      checkout_docker_manifest ~only_rootfs ~sw ~cache ~dir m)
     ms
 
 let checkout_oci_manifests ~sw ~cache ~dir ds =
@@ -116,8 +119,8 @@ let checkout_oci_manifests ~sw ~cache ~dir ds =
       checkout_oci_manifest ~sw ~cache ~dir m)
     ms
 
-let checkout_docker_manifest_list ~sw ~cache ~dir img l =
-  checkout_docker_manifests ~sw ~cache ~dir img (Manifest_list.manifests l)
+let checkout_docker_manifest_list ?only_rootfs ~sw ~cache ~dir img l =
+  checkout_docker_manifests ?only_rootfs ~sw ~cache ~dir img (Manifest_list.manifests l)
 
 let checkout_oci_index ~sw ~cache ~dir i =
   checkout_oci_manifests ~sw ~cache ~dir (Index.manifests i)
@@ -128,8 +131,8 @@ let checkout ?(only_rootfs=false) ~cache ~root i =
   in
   Eio.Switch.run @@ fun sw ->
   match Cache.Manifest.get cache i with
-  | `Docker_manifest m -> checkout_docker_manifest ~sw ~cache ~dir m
+  | `Docker_manifest m -> checkout_docker_manifest ~only_rootfs ~sw ~cache ~dir m
   | `Docker_manifest_list m ->
-      checkout_docker_manifest_list ~sw ~cache ~dir (Image.repository i) m
+      checkout_docker_manifest_list ~only_rootfs ~sw ~cache ~dir (Image.repository i) m
   | `OCI_index i -> checkout_oci_index ~sw ~cache ~dir i
   | `OCI_manifest m -> checkout_oci_manifest ~sw ~cache ~dir m
