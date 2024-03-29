@@ -83,7 +83,7 @@ end) = struct
       in
       of_oci_manifest manifest
 
-  let fetch ~log:_ ~rootfs base =
+  let fetch_with_eio ~log:_ ~rootfs base =
     let module Ci = Container_image in
     let open Container_image_spec in
     Logs.info (fun f -> f "Fetching %s" base);
@@ -100,7 +100,10 @@ end) = struct
       let digest = Descriptor.digest descriptor in
       let single_image = Ci.Image.with_digest digest img in 
       Ci.checkout ~only_rootfs:true ~cache ~root single_image;
-      Lwt.return @@ get_environment_variables_from_manifest ~cache manifest img
+      get_environment_variables_from_manifest ~cache manifest img
+
+    let fetch ~log ~rootfs base =
+      Lwt_eio.run_eio @@ fun () -> fetch_with_eio ~log ~rootfs base
 end
 
 let make_fetcher ?(progress=true) ~fs ~net domain_mgr =
