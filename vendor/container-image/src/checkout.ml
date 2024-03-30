@@ -44,8 +44,12 @@ let checkout_layer ~sw ~cache layer dir =
         | _ ->
             Eio.Switch.run @@ fun sw ->
             let dst =
-              Eio.Path.open_out ~sw ~append:false ~create:(`If_missing file_mode)
-                path
+              try 
+                Eio.Path.open_out ~sw ~append:false ~create:(`If_missing file_mode)
+                  path
+              with exn ->
+                Logs.info (fun f -> f "Failed open %a with flags %o" Eio.Path.pp path file_mode);
+                raise exn
             in
             Eio.Flow.copy src dst;
         in
