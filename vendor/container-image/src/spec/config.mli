@@ -22,6 +22,9 @@ val pp : t Fmt.t
 val env : t -> (string * string) list
 (** Environment variables *)
 
+val user : t -> string option 
+(** The user string *)
+
 val platform : t -> Platform.t
 
 val of_string :

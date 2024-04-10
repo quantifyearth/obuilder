@@ -20,7 +20,7 @@ let fetch ~log ~rootfs base =
     (fun () ->
      invoke_fetcher base rootfs >>= fun () ->
      let env = [] in
-     Lwt.return env)
+     Lwt.return (env,None))
     (function
      | Sys_error s ->
        Fmt.failwith "Archive fetcher encountered a system error: %s" s

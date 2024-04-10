@@ -47,6 +47,7 @@ end
 module Saved_context = struct
   type t = {
     env : Config.env;
+    user : Obuilder_spec.user option;
   } [@@deriving sexp]
 end
 
@@ -282,6 +283,23 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
       | `Shell shell ->
         k ~base ~context:{context with shell}
 
+  let get_user_from_passwd rootfs user =
+    let user = String.trim user in
+    match Bos.OS.File.read (Fpath.(v rootfs / "etc" / "passwd")) with
+    | Error _ -> failwith "Couldn't read /etc/passwd"
+    | Ok r ->
+      let get_uid_gid s =
+        match String.split_on_char ':' s with
+        | username :: _pw :: uid :: gid :: _ ->
+            let uid = int_of_string uid in
+            let gid = int_of_string gid in
+            if String.equal user (String.trim username) then Some (Obuilder_spec.(`Unix { uid; gid })) else None
+        | _ -> None
+      in
+      let users = String.split_on_char '\n' r |> List.filter (fun v -> not (String.equal "" v)) in
+      let user = List.find_map get_uid_gid users in
+      user
+            
   let get_base t ~log base =
     let () = match base with
       | `Image i -> log `Heading (Fmt.str "(from %a)" Sexplib.Sexp.pp_hum (Atom i));
@@ -291,23 +309,28 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
     | `Build base ->
       Store.result t.store base
       >|= Option.get >>= fun path ->
-      let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
-      Lwt_result.return (base, env)
+      let ctx = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
+      Lwt_result.return (base, ctx)
     | `Image base ->
       let id = Sha256.to_hex (Sha256.string base) in
       Store.build t.store ~id ~log (fun ~cancelled:_ ~log tmp ->
           Log.info (fun f -> f "Base image not present; importing %S…" base);
           let rootfs = tmp / "rootfs" in
           Os.sudo ["mkdir"; "-m"; "755"; "--"; rootfs] >>= fun () ->
-          Fetch.fetch ~log ~rootfs base >>= fun env ->
+          Fetch.fetch ~log ~rootfs base >>= fun (env, user) ->
+          let user = 
+            match user with 
+            | Some user -> get_user_from_passwd rootfs user 
+            | None -> None
+          in
           Os.write_file ~path:(tmp / "env")
-            (Sexplib.Sexp.to_string_hum Saved_context.(sexp_of_t {env})) >>= fun () ->
+          (Sexplib.Sexp.to_string_hum Saved_context.(sexp_of_t {env ; user})) >>= fun () ->
           Lwt_result.return ()
         )
       >>!= fun id -> Store.result t.store id
       >|= Option.get >>= fun path ->
-      let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
-      Lwt_result.return (id, env)
+      let ctx = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
+      Lwt_result.return (id, ctx)
 
   let rec build t context { Obuilder_spec.child_builds; from = base; ops } =
     let rec aux context = function
@@ -320,8 +343,8 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
         aux context child_builds
     in
     aux context child_builds >>!= fun context ->
-    get_base t ~log:context.Context.log base >>!= fun (id, env) ->
-    let context = { context with env = context.env @ env } in
+    get_base t ~log:context.Context.log base >>!= fun (id, ctx) ->
+    let context = { context with env = context.env @ ctx.env; user = Option.value ~default:context.user ctx.user } in
     run_steps t ~context ~base:id ops
 
   let shell t ?unix_sock ?stdin id =
@@ -373,8 +396,8 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
     get_base t ~log healthcheck_base >>= function
     | Error (`Msg _) as x -> Lwt.return x
     | Error `Cancelled -> failwith "Cancelled getting base image (shouldn't happen!)"
-    | Ok (id, env) ->
-      let context = { context with env } in
+    | Ok (id, ctx) ->
+      let context = { context with env = ctx.env; user = Option.value ~default:context.user ctx.user } in
       (* Start the timer *)
       Lwt.async (fun () ->
           Lwt_unix.sleep timeout >>= fun () ->

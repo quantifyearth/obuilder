@@ -44,7 +44,7 @@ end) = struct
         |> Config.of_string ~media_type:Media_type.(Docker Docker.Image_config)
       in
       match config with
-      | Ok config -> Config.env config
+      | Ok config -> Config.env config, Config.user config
       | Error (`Msg m) -> failwith m
     in
     let of_docker_manifest (docker_manifest : Manifest.Docker.t) =
@@ -56,7 +56,7 @@ end) = struct
         config_str |> Config.of_string ~media_type:Media_type.(Docker Docker.Image_config)
       in
       match config with
-      | Ok config -> Config.env config
+      | Ok config -> Config.env config, Config.user config
       | Error (`Msg m) -> failwith (m ^ " : " ^ config_str)
     in
     match (v : Manifest.t) with

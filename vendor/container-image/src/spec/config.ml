@@ -159,6 +159,18 @@ let env = function
       | None -> []
       | Some v -> v)
 
+let user = function
+  | OCI oci -> (
+      match Option.bind oci.config (fun (config : OCI.config) -> config.user) with
+      | None -> None
+      | Some v -> Some v)
+  | Docker docker -> (
+      match
+        Option.bind docker.config (fun (config : Docker.config) -> config.user)
+      with
+      | None -> None
+      | Some v -> Some v)
+
 let platform = function
   | OCI c -> OCI.platform c
   | Docker d -> Docker.platform d

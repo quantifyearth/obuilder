@@ -25,5 +25,5 @@ let fetch ~log:_ ~rootfs base =
     List.filter (fun (_, l) -> l > len) |> List.map (fun (s, l) -> String.sub s (len + 1) (l - len - 1)) |>
     Lwt_list.iter_s (fun subvolume ->
       Os.sudo ["zfs"; "clone"; base_image / subvolume ^ "@snap"; zfs_rootfs / subvolume ]) >>= fun () ->
-  Lwt.return []
+  Lwt.return ([], None)
 

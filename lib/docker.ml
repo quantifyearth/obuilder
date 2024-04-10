@@ -367,6 +367,9 @@ module Extract = struct
           | Some _ as pair -> pair
       )
 
+  let export_user base : string Lwt.t =
+    pread [ "image"; "inspect"; "--format"; "{{.Config.User}}"; "--"; base ]
+    
   let fetch ~log ~rootfs base =
     let* () = with_container ~log base (fun cid ->
         Os.with_pipe_between_children @@ fun ~r ~w ->
@@ -376,5 +379,7 @@ module Extract = struct
         tar
       )
     in
-    export_env base
+    let* env = export_env base in
+    let+ user = export_user base in
+    (env, Some user)
 end
