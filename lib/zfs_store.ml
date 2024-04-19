@@ -33,6 +33,8 @@ type cache = {
 
 type t = {
   pool : string;
+  path_with_pool : bool;
+  subdir : string option; (* This allows the destination datasets to be store under <prefix>/<pool>/<subdir>/result... *)
   prefix : string; (* To be prepended to `pool` to give the full path to the pool *)
   caches : (string, cache) Hashtbl.t;
   mutable next : int;
@@ -46,7 +48,7 @@ module Dataset : sig
   val state : dataset
   val cache_tmp_group : dataset
   val groups : dataset list
-
+  val subdir : t -> dataset option 
   val result : S.id -> dataset
   val cache : string -> dataset
   val cache_tmp : int -> string -> dataset
@@ -56,6 +58,7 @@ module Dataset : sig
 
   val exists : ?snapshot:string -> t -> dataset -> bool Lwt.t
   val if_missing : ?snapshot:string -> t -> dataset -> (unit -> unit Lwt.t) -> unit Lwt.t
+  val if_missing_subdir : t -> (string -> unit Lwt.t) -> unit Lwt.t
 end = struct
   type dataset = string
 
@@ -64,33 +67,62 @@ end = struct
   let cache_group = "cache"
   let cache_tmp_group = "cache-tmp"
 
+  let subdir t = t.subdir
+
   let groups = [state; result_group; cache_group; cache_tmp_group]
 
   let result id = "result/" ^ id
   let cache name = "cache/" ^ Escape.cache name
   let cache_tmp i name = strf "cache-tmp/%d-%s" i (Escape.cache name)
 
+  let dataset pool subdir ds = match subdir with
+    | None -> strf "%s/%s" pool ds
+    | Some subdir -> strf "%s/%s/%s" pool subdir ds
+  
+  let dataset_no_pool subdir ds = match subdir with
+    | None -> ds
+    | Some subdir -> strf "%s/%s" subdir ds
+
   let full_name ?snapshot ?subvolume t ds =
     match snapshot, subvolume with
-    | None, None -> strf "%s/%s" t.pool ds
-    | Some snapshot, None -> strf "%s/%s@%s" t.pool ds snapshot
-    | None, Some subvolume -> strf "%s/%s/%s" t.pool ds subvolume
-    | Some snapshot, Some subvolume -> strf "%s/%s/%s@%s" t.pool ds subvolume snapshot
+    | None, None -> dataset t.pool t.subdir ds 
+    | Some snapshot, None -> 
+        strf "%s@%s" (dataset t.pool t.subdir ds) snapshot
+    | None, Some subvolume -> 
+        strf "%s/%s" (dataset t.pool t.subdir ds) subvolume
+    | Some snapshot, Some subvolume -> 
+        strf "%s/%s@%s" (dataset t.pool t.subdir ds) subvolume snapshot
 
   let path ?snapshot t ds =
     match snapshot with
-    | None -> strf "%s%s/%s" t.prefix t.pool ds
-    | Some snapshot -> strf "%s%s/%s/.zfs/snapshot/%s" t.prefix t.pool ds snapshot
+    | None ->
+        if t.path_with_pool then strf "%s%s" t.prefix (dataset t.pool t.subdir ds)
+        else strf "%s%s" t.prefix (dataset_no_pool t.subdir ds)
+    | Some snapshot -> 
+        if t.path_with_pool then strf "%s%s/.zfs/snapshot/%s" t.prefix (dataset t.pool t.subdir ds) snapshot
+        else strf "%s%s/.zfs/snapshot/%s" t.prefix (dataset_no_pool t.subdir ds) snapshot
 
-  let exists ?snapshot t ds =
-    Lwt_process.pread ("", [| "zfs"; "list"; "-p"; "-H"; full_name t ds ?snapshot |]) >>= function
+  let exists_raw raw =
+    Lwt_process.pread ("", [| "zfs"; "list"; "-p"; "-H"; raw |]) >>= function
     | "" -> Lwt.return false
     | _ -> Lwt.return true
+
+  let exists ?snapshot t ds =
+    exists_raw (full_name t ds ?snapshot)
 
   let if_missing ?snapshot t ds fn =
     exists ?snapshot t ds >>= function
     | true -> Lwt.return_unit
     | false -> fn ()
+  
+  let if_missing_subdir t fn =
+    match t.subdir with 
+    | None -> Lwt.return_unit
+    | Some dir ->
+      let path = t.pool ^ "/" ^ dir in
+      exists_raw path >>= function
+      | true -> Lwt.return_unit
+      | false -> fn path
 end
 
 let user = `Unix { Obuilder_spec.uid = Unix.getuid (); gid = Unix.getgid () }
@@ -102,6 +134,9 @@ module Zfs = struct
 
   let create t ds =
     Os.sudo ["zfs"; "create"; "--"; Dataset.full_name t ds]
+
+  let create_raw t ds =
+    Os.sudo ["zfs"; "create"; "--"; ds ]
 
   let destroy t ds mode =
     let opts =
@@ -190,11 +225,12 @@ let prefix_and_pool path =
    | Some prefix -> (prefix, pool)
    | None -> failwith ("Failed to get preffix from: " ^ path)
 
-let create ~path =
+let create ?(path_with_pool=true) ?subdir ~path =
   let prefix, pool = prefix_and_pool path in
-  let t = { pool; prefix; caches = Hashtbl.create 10; next = 0 } in
+  let t = { pool; path_with_pool; subdir; prefix; caches = Hashtbl.create 10; next = 0 } in
   (* Ensure any left-over temporary datasets are removed before we start. *)
   delete_if_exists t (Dataset.cache_tmp_group) `And_snapshots_and_clones >>= fun () ->
+  Dataset.if_missing_subdir t (fun subdir -> Zfs.create_raw t subdir) >>= fun () -> 
   Dataset.groups |> Lwt_list.iter_s (fun group ->
       Dataset.if_missing t group (fun () -> Zfs.create t group) >>= fun () ->
       Zfs.chown ~user t group
