@@ -29,6 +29,7 @@ module Path = struct
   let empty t            = t.root / "empty"
   let state t            = t.root / "state"
   let log_file t id      = t.root / "logs" / (id ^ ".log")
+  let failed t id      = t.root / "logs" / (id ^ ".failed")
 end
 
 (* The OBuilder persistent cache is implemented using a shared Docker
@@ -151,6 +152,7 @@ let result t id =
     Lwt.return_none
 
 let log_file t id = Lwt.return (Path.log_file t id)
+let failed t id = Lwt.return (Path.failed t id)
 
 let state_dir = Path.state
 

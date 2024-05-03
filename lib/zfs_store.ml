@@ -306,6 +306,14 @@ let log_file t id =
     let clone = Dataset.path t ds in
     Filename.concat clone "log"
 
+let failed t id =
+  result t id >|= function
+  | Some dir -> Filename.concat dir "failed"
+  | None ->
+    let ds = Dataset.result id in
+    let clone = Dataset.path t ds in
+    Filename.concat clone "failed"
+
 let get_cache t name =
   match Hashtbl.find_opt t.caches name with
   | Some c -> c

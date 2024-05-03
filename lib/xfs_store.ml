@@ -98,6 +98,11 @@ let log_file t id =
   | Some dir -> dir / "log"
   | None -> (Path.result_tmp t id) / "log"
 
+let failed t id =
+  result t id >|= function
+  | Some dir -> dir / "failed"
+  | None -> (Path.result_tmp t id) / "failed"
+
 let state_dir t = t.path / Path.state_dirname
 
 let get_cache t name =

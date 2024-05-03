@@ -168,6 +168,11 @@ let log_file t id =
   | Some dir -> dir / "log"
   | None -> (Path.result_tmp t id) / "log"
 
+let failed t id =
+  result t id >|= function
+  | Some dir -> dir / "failed"
+  | None -> (Path.result_tmp t id) / "failed"
+
 let get_cache t name =
   match Hashtbl.find_opt t.caches name with
   | Some c -> c

@@ -44,6 +44,10 @@ module type STORE = sig
   (** [log_file t id] is the path of the build logs for [id]. The file may
       not exist if the build has never been run, or failed. *)
 
+  val failed : t -> id -> string Lwt.t
+  (** [failed t id] is the path of a file if the build failed containing information
+      about the failure of the build. *)
+
   val state_dir : t -> string
   (** [state_dir] is the path of a directory which can be used to store mutable
       state related to this store (e.g. an sqlite3 database). *)

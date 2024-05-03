@@ -47,19 +47,26 @@ module Make (Raw : S.STORE) = struct
   (* Get the result for [id], either by loading it from the disk cache
      or by doing a new build using [fn]. We only run one instance of this
      at a time for a single [id]. *)
-  let get_build t ~base ~id ~cancelled ~set_log fn =
+  let rec get_build t ~base ~id ~cancelled ~set_log fn =
     Raw.result t.raw id >>= function
-    | Some _ ->
-      t.cache_hit <- t.cache_hit + 1;
-      let now = Unix.(gmtime (gettimeofday ())) in
-      Dao.set_used t.dao ~id ~now;
-      Raw.log_file t.raw id >>= fun log_file ->
-      begin
-        if Sys.file_exists log_file then Build_log.of_saved log_file
-        else Lwt.return Build_log.empty
-      end >>= fun log ->
-      Lwt.wakeup set_log log;
-      Lwt_result.return (`Loaded, id)
+    | Some res ->
+      Raw.failed t.raw id >>= fun failed_path ->
+      if Sys.file_exists failed_path then begin
+        Logs.info (fun f -> f "Found failed build %s, deleting" res);
+        Raw.delete t.raw id >>= fun () ->
+        get_build t ~base ~id ~cancelled ~set_log fn
+      end else begin
+        t.cache_hit <- t.cache_hit + 1;
+        let now = Unix.(gmtime (gettimeofday ())) in
+        Dao.set_used t.dao ~id ~now;
+        Raw.log_file t.raw id >>= fun log_file ->
+        begin
+          if Sys.file_exists log_file then Build_log.of_saved log_file
+          else Lwt.return Build_log.empty
+         end >>= fun log ->
+        Lwt.wakeup set_log log;
+        Lwt_result.return (`Loaded, id)
+      end
     | None ->
       t.cache_miss <- t.cache_miss + 1;
       Raw.build t.raw ?base ~id (fun dir ->
@@ -75,7 +82,12 @@ module Make (Raw : S.STORE) = struct
         Dao.add t.dao ?parent:base ~id ~now;
         Lwt_result.return (`Saved, id)
       | Error `Cancelled -> Lwt.return (Error `Cancelled)
-      | Error (`Msg m) -> Lwt.return (Error (`Failed (id, m)))
+      | Error (`Msg m) ->
+        Raw.failed t.raw id >>= fun failed_path ->
+        let res = Bos.OS.File.write ~mode:0o644 (Fpath.v failed_path) m in
+        match res with
+        | Ok () -> Lwt.return (Error (`Failed (id, m)))
+        | Error (`Msg m) -> failwith m
 
   let log_ty client_log ~id = function
     | `Loaded -> client_log `Note (Fmt.str "---> using %S from cache" id)
