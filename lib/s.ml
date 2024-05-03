@@ -109,7 +109,7 @@ module type BUILDER = sig
     t ->
     context ->
     Obuilder_spec.t ->
-    (id, [> `Cancelled | `Msg of string]) Lwt_result.t
+    (id, [> `Cancelled | `Msg of string | `Failed of (id * string)]) Lwt_result.t
 
   val shell :
     t ->

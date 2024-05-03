@@ -7,7 +7,7 @@ module Make (Raw : S.STORE) : sig
     id:S.id ->
     log:S.logger ->
     (cancelled:unit Lwt.t -> log:Build_log.t -> string -> (unit, [`Cancelled | `Msg of string]) Lwt_result.t) ->
-    (S.id, [`Cancelled | `Msg of string]) Lwt_result.t
+    (S.id, [> `Cancelled | `Failed of (S.id * string)]) Lwt_result.t
   (** [build t ~id ~log fn] ensures that [id] is cached, using [fn ~cancelled ~log dir] to build it if not.
       If [cancelled] resolves, the build should be cancelled.
       If [id] is already in the process of being built, this just attaches to the existing build.

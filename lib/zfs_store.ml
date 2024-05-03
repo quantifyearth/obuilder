@@ -64,6 +64,7 @@ end = struct
 
   let state = "state"
   let result_group = "result"
+  let failed_group = "failed"
   let cache_group = "cache"
   let cache_tmp_group = "cache-tmp"
 
@@ -277,7 +278,8 @@ let build t ?base ~id fn =
         Lwt_result.return ()
       | Error _ as e ->
         Log.debug (fun f -> f "zfs: build %S failed" id);
-        Zfs.destroy t ds `And_snapshots >>= fun () ->
+        (* Don't delete build results that fail *)
+        (* Zfs.destroy t ds `And_snapshots >>= fun () -> *)
         Lwt.return e
     )
     (fun ex ->

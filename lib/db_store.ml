@@ -8,7 +8,7 @@ module Make (Raw : S.STORE) = struct
     mutable users : int;
     set_cancelled : unit Lwt.u;         (* Resolve this to cancel (when [users = 0]). *)
     log : Build_log.t Lwt.t;
-    result : (([`Loaded | `Saved] * S.id), [`Cancelled | `Msg of string]) Lwt_result.t;
+    result : (([`Loaded | `Saved] * S.id), [`Cancelled | `Failed of (S.id * string)]) Lwt_result.t;
     base : string option;
   }
 
@@ -69,10 +69,13 @@ module Make (Raw : S.STORE) = struct
           Lwt.wakeup set_log log;
           fn ~cancelled ~log dir
         )
-      >>!= fun () ->
-      let now = Unix.(gmtime (gettimeofday () )) in
-      Dao.add t.dao ?parent:base ~id ~now;
-      Lwt_result.return (`Saved, id)
+      >>= function 
+      | Ok () ->
+        let now = Unix.(gmtime (gettimeofday () )) in
+        Dao.add t.dao ?parent:base ~id ~now;
+        Lwt_result.return (`Saved, id)
+      | Error `Cancelled -> Lwt.return (Error `Cancelled)
+      | Error (`Msg m) -> Lwt.return (Error (`Failed (id, m)))
 
   let log_ty client_log ~id = function
     | `Loaded -> client_log `Note (Fmt.str "---> using %S from cache" id)
@@ -120,21 +123,25 @@ module Make (Raw : S.STORE) = struct
              (fun () -> get_build t ~base ~id ~cancelled ~set_log fn)
              (fun r ->
                 t.in_progress <- Builds.remove id t.in_progress;
-                Lwt.wakeup_later set_result r;
-                finish_log ~set_log log
+                finish_log ~set_log log >|= fun () ->
+                Lwt.wakeup_later set_result r
              )
              (fun ex ->
                 Log.info (fun f -> f "Build %S error: %a" id Fmt.exn ex);
                 t.in_progress <- Builds.remove id t.in_progress;
-                Lwt.wakeup_later_exn set_result ex;
-                finish_log ~set_log log
+                finish_log ~set_log log >|= fun () ->
+                Lwt.wakeup_later_exn set_result ex
              )
         );
       tail_log >>!= fun () ->
       result >>!= fun (ty, r) ->
       log_ty client_log ~id ty;
       Lwt_result.return r
-
+  
+  let build ?switch t ?base ~id ~log:client_log fn =
+    let res = build ?switch t ?base ~id ~log:client_log fn in
+    (res : (string, [ `Cancelled | `Failed of string * string ]) Lwt_result.t :> (string, [> `Cancelled | `Failed of string * string ]) Lwt_result.t)
+  
   let result t id = Raw.result t.raw id
   let count t = Dao.count t.dao
   let df t = Raw.df t.raw

@@ -191,7 +191,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
     end >>!= fun src_dir ->
     let src_manifest = sequence (List.map (Manifest.generate ~exclude ~src_dir) src) in
     match Result.bind src_manifest (to_copy_op ~dst) with
-    | Error _ as e -> Lwt.return e
+    | Error _ as e -> Lwt.return (e :> ('a, [> `Msg of string | `Failed of (S.id * string) | `Cancelled ]) result)
     | Ok op ->
       let details = {
         base;
@@ -200,7 +200,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
       } in
       (* Fmt.pr "COPY: %a@." Sexplib.Sexp.pp_hum (sexp_of_copy_details details); *)
       let id = Sha256.to_hex (Sha256.string (Sexplib.Sexp.to_string (sexp_of_copy_details details))) in
-      Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log result_tmp ->
+      let res = Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log result_tmp ->
           let argv = `Run ["tar"; "-xf"; "-"] in
           let config = Config.v
               ~cwd:"/"
@@ -231,7 +231,8 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
           proc >>= fun result ->
           send >>= fun () ->
           Lwt.return result
-        )
+        ) in
+      (res : (string, [`Cancelled | `Failed of (S.id * string)]) Lwt_result.t :> (string, [> `Cancelled | `Msg of string | `Failed of (S.id * string) ]) Lwt_result.t)
 
   let pp_op ~(context:Context.t) f op =
     Fmt.pf f "@[<v2>%s: %a@]" context.workdir Obuilder_spec.pp_op op
@@ -255,25 +256,30 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
       result >>= fun result ->
       mount_secret values secret >>| fun resolved_secret ->
       (resolved_secret :: result) ) (Ok []) secrets
-
+  
   let rec run_steps t ~(context:Context.t) ~base = function
     | [] -> Sandbox.finished () >>= fun () -> Lwt_result.return base
     | op :: ops ->
       context.log `Heading Fmt.(str "%a" (pp_op ~context) op);
-      let k = run_steps t ops in
+      let k : context:Context.t -> base:string -> ( string, [ `Cancelled | `Failed of string * string | `Msg of string ] ) Lwt_result.t = fun ~context ~base ->
+        (run_steps t ops ~context ~base :> ( string, [ `Cancelled | `Failed of string * string | `Msg of string ] ) Lwt_result.t) 
+      in
       match op with
       | `Comment _ -> k ~base ~context
       | `Workdir workdir -> k ~base ~context:(update_workdir ~context workdir)
       | `User user -> k ~base ~context:{context with user}
-      | `Run { shell = cmd; cache; network; secrets = mount_secrets; rom } ->
+      | `Run { shell = cmd; cache; network; secrets = mount_secrets; rom } -> (
         let result =
           let { Context.switch; workdir; user; env; shell; log; src_dir = _; scope = _; secrets } = context in
           resolve_secrets secrets mount_secrets |> Result.map @@ fun mount_secrets ->
           (switch, { base; workdir; user; env; cmd; shell; network; mount_secrets }, log)
         in
         Lwt.return result >>!= fun (switch, run_input, log) ->
-        run t ~switch ~log ~cache ~rom run_input >>!= fun base ->
-        k ~base ~context
+        run t ~switch ~log ~cache ~rom run_input >>= fun base ->
+        match base with
+        | Ok base -> k ~base ~context
+        | Error _ as e -> Lwt.return e
+      )
       | `Copy x ->
         copy t ~context ~base x >>!= fun base ->
         k ~base ~context
@@ -356,7 +362,10 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
 
   let build t context spec =
     let r = build t context spec in
-    (r : (string, [ `Cancelled | `Msg of string ]) Lwt_result.t :> (string, [> `Cancelled | `Msg of string ]) Lwt_result.t)
+    (r : ( string,
+  [ `Cancelled | `Failed of string * string | `Msg of string ]
+)
+Lwt_result.t :> (string, [> `Cancelled | `Msg of string | `Failed of (S.id * string) ]) Lwt_result.t)
 
   let delete ?log t id =
     Store.delete ?log t.store id
@@ -638,7 +647,7 @@ module Make_Docker (Raw_store : S.STORE) = struct
 
   let build t context spec =
     let r = build ~scope:[] t context spec in
-    (r : (string, [ `Cancelled | `Msg of string ]) Lwt_result.t :> (string, [> `Cancelled | `Msg of string ]) Lwt_result.t)
+    (r :>  (string, [> `Cancelled | `Msg of string | `Failed of (S.id * string) ]) Lwt_result.t)
 
   let delete ?log t id =
     Store.delete ?log t.store id

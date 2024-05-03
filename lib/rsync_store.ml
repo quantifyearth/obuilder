@@ -104,7 +104,7 @@ let build t ?base ~id fn =
     (fun r ->
       begin match r with
       | Ok () -> Rsync.rename_with_sharing ~mode:t.mode ~base ~src:result_tmp ~dst:result
-      | Error _ -> Rsync.delete result_tmp
+      | Error _ -> Rsync.rename_with_sharing ~mode:t.mode ~base ~src:result_tmp ~dst:result
       end >>= fun () ->
       Lwt.return r
     )
