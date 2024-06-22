@@ -22,6 +22,7 @@ module type STORE = sig
   val build :
     t -> ?base:id ->
     id:id ->
+    meta:(string * string) list ->
     (string -> (unit, 'e) Lwt_result.t) ->
     (unit, 'e) Lwt_result.t
   (** [build t ~id fn] runs [fn tmpdir] to add a new item to the store under
@@ -32,7 +33,8 @@ module type STORE = sig
       The builder will not request concurrent builds for the same [id] (it
       will handle that itself). It will also not ask for a build that already
       exists (i.e. for which [result] returns a path).
-      @param base Initialise [tmpdir] as a clone of [base]. *)
+      @param base Initialise [tmpdir] as a clone of [base].
+      @param meta Metadata that can be stored as a key-value list with the result. *)
 
   val delete : t -> id -> unit Lwt.t
   (** [delete t id] removes [id] from the store, if present. *)

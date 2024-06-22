@@ -47,14 +47,14 @@ module Make (Raw : S.STORE) = struct
   (* Get the result for [id], either by loading it from the disk cache
      or by doing a new build using [fn]. We only run one instance of this
      at a time for a single [id]. *)
-  let rec get_build t ~base ~id ~cancelled ~set_log fn =
+  let rec get_build t ~base ~id ~cancelled ~set_log ~meta fn =
     Raw.result t.raw id >>= function
     | Some res ->
       Raw.failed t.raw id >>= fun failed_path ->
       if Sys.file_exists failed_path then begin
         Logs.info (fun f -> f "Found failed build %s, deleting" res);
         Raw.delete t.raw id >>= fun () ->
-        get_build t ~base ~id ~cancelled ~set_log fn
+        get_build t ~base ~id ~cancelled ~set_log ~meta fn
       end else begin
         t.cache_hit <- t.cache_hit + 1;
         let now = Unix.(gmtime (gettimeofday ())) in
@@ -69,7 +69,7 @@ module Make (Raw : S.STORE) = struct
       end
     | None ->
       t.cache_miss <- t.cache_miss + 1;
-      Raw.build t.raw ?base ~id (fun dir ->
+      Raw.build t.raw ?base ~id ~meta (fun dir ->
           Raw.log_file t.raw id >>= fun log_file ->
           if Sys.file_exists log_file then Unix.unlink log_file;
           Build_log.create log_file >>= fun log ->
@@ -95,7 +95,7 @@ module Make (Raw : S.STORE) = struct
 
   let with_temp t id fn = 
     let tmp = "tmp-" ^ id in
-    Raw.build ~base:id t.raw ~id:tmp fn >>!= fun () ->
+    Raw.build ~base:id t.raw ~id:tmp ~meta:[] fn >>!= fun () ->
     Raw.delete t.raw tmp >>= fun () ->
     Lwt.return @@ Ok ()
 
@@ -105,13 +105,13 @@ module Make (Raw : S.STORE) = struct
      [get_build] should set the log being used as soon as it knows it
      (this can't happen until we've created the temporary directory
      in the underlying store). *)
-  let rec build ?switch t ?base ~id ~log:client_log fn =
+  let rec build ?switch t ?base ~id ~log:client_log ~meta fn =
     match Builds.find_opt id t.in_progress with
     | Some existing when existing.users = 0 ->
       client_log `Note ("Waiting for previous build to finish cancelling");
       assert (Lwt.is_sleeping existing.result);
       existing.result >>= fun _ ->
-      build ?switch t ?base ~id ~log:client_log fn
+      build ?switch t ?base ~id ~log:client_log ~meta fn
     | Some existing ->
       (* We're already building this, and the build hasn't been cancelled. *)
       existing.users <- existing.users + 1;
@@ -132,7 +132,7 @@ module Make (Raw : S.STORE) = struct
       Lwt.async
         (fun () ->
            Lwt.try_bind
-             (fun () -> get_build t ~base ~id ~cancelled ~set_log fn)
+             (fun () -> get_build t ~base ~id ~cancelled ~set_log ~meta fn)
              (fun r ->
                 t.in_progress <- Builds.remove id t.in_progress;
                 finish_log ~set_log log >|= fun () ->
@@ -150,8 +150,8 @@ module Make (Raw : S.STORE) = struct
       log_ty client_log ~id ty;
       Lwt_result.return r
   
-  let build ?switch t ?base ~id ~log:client_log fn =
-    let res = build ?switch t ?base ~id ~log:client_log fn in
+  let build ?switch t ?base ~id ~log:client_log ~meta fn =
+    let res = build ?switch t ?base ~id ~log:client_log ~meta fn in
     (res : (string, [ `Cancelled | `Failed of string * string ]) Lwt_result.t :> (string, [> `Cancelled | `Failed of string * string ]) Lwt_result.t)
   
   let result t id = Raw.result t.raw id

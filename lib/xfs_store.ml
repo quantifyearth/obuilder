@@ -56,7 +56,7 @@ let create ~path =
   Lwt_list.iter_s Xfs.create (Path.dirs path) >|= fun () ->
   { path; caches = Hashtbl.create 10; next = 0 }
 
-let build t ?base ~id fn =
+let build t ?base ~id ~meta:_ fn =
   Log.debug (fun f -> f "xfs: build %S" id);
   let result = Path.result t id in
   let result_tmp = Path.result_tmp t id in

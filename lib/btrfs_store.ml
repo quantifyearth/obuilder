@@ -132,7 +132,7 @@ let create root =
   purge (root / "cache-tmp") >>= fun () ->
   Lwt.return { root; caches = Hashtbl.create 10; next = 0 }
 
-let build t ?base ~id fn =
+let build t ?base ~id ~meta:_ fn =
   let result = Path.result t id in
   let result_tmp = Path.result_tmp t id in
   assert (not (Sys.file_exists result));        (* Builder should have checked first *)

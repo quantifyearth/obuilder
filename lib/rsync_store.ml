@@ -89,7 +89,7 @@ let create ~path ?(mode = Copy) () =
   Lwt_list.iter_s Rsync.create (Path.dirs path) >|= fun () ->
   { path; mode; caches = Hashtbl.create 10; next = 0 }
 
-let build t ?base ~id fn =
+let build t ?base ~id ~meta:_ fn =
   Log.debug (fun f -> f "rsync: build %S" id);
   let result = Path.result t id in
   let result_tmp = Path.result_tmp t id in
