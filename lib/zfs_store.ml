@@ -139,6 +139,12 @@ module Zfs = struct
   let create_raw t ds =
     Os.sudo ["zfs"; "create"; "--"; ds ]
 
+  let set t ds props =
+    let set p v =
+      Os.sudo ["zfs"; "set"; "-u"; Fmt.str "%s=%s" p v; Dataset.full_name t ds ]
+    in
+    Lwt_list.iter_s (fun (p, v) -> set p v) props
+
   let destroy t ds mode =
     let opts =
       match mode with
@@ -248,7 +254,7 @@ let delete t id =
    On success, we snapshot the clone as clone@snap.
    On failure, we destroy the clone. This will always succeed because we can't have
    tagged it or created further clones at this point. *)
-let build t ?base ~id fn =
+let build t ?base ~id ~meta fn =
   Log.debug (fun f -> f "zfs: build %S" id);
   let ds = Dataset.result id in
   (* We have to create the dataset in its final location because ZFS can't
@@ -275,11 +281,13 @@ let build t ?base ~id fn =
         Zfs.snapshot t ds ~snapshot:default_snapshot >>= fun () ->
         (* ZFS can't delete the clone while the snapshot still exists. So I guess we'll just
            keep it around? *)
+        Zfs.set t ds meta >>= fun () ->
         Lwt_result.return ()
       | Error _ as e ->
         Log.debug (fun f -> f "zfs: build %S failed" id);
         (* Don't delete build results that fail *)
         (* Zfs.destroy t ds `And_snapshots >>= fun () -> *)
+        Zfs.set t ds meta >>= fun () ->
         Lwt.return e
     )
     (fun ex ->

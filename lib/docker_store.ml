@@ -106,7 +106,7 @@ let create root =
   let* () = purge () in
   Lwt.return t
 
-let build t ?base ~id (fn:(string -> (unit, 'e) Lwt_result.t)) : (unit, 'e) Lwt_result.t =
+let build t ?base ~id ~meta:_ (fn:(string -> (unit, 'e) Lwt_result.t)) : (unit, 'e) Lwt_result.t =
   match base with
   | None ->
     Lwt.catch

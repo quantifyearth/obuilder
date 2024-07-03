@@ -70,17 +70,20 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
     shell : string list;
     network : string list;
     mount_secrets : Config.Secret.t list;
+    rom : Obuilder_spec.Rom.t list;
   } [@@deriving sexp_of]
 
-  let run t ~switch ~log ~cache ~(rom:Obuilder_spec.Rom.t list) run_input =
+  let run t ~switch ~log ~cache run_input =
+    let input = sexp_of_run_input run_input in
+    let string_input = input |> Sexplib.Sexp.to_string in
     let id =
-      sexp_of_run_input run_input
+      input
       |> Sexplib.Sexp.to_string_mach
       |> Sha256.string
       |> Sha256.to_hex
     in
-    let { base; workdir; user; env; cmd; shell; network; mount_secrets } = run_input in
-    Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log result_tmp ->
+    let { base; workdir; user; env; cmd; shell; network; mount_secrets; rom } = run_input in
+    Store.build t.store ?switch ~base ~id ~log ~meta:[ ":obuilder-run-input", string_input ] (fun ~cancelled ~log result_tmp ->
         let to_release = ref [] in
         Lwt.finalize
           (fun () ->
@@ -200,7 +203,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
       } in
       (* Fmt.pr "COPY: %a@." Sexplib.Sexp.pp_hum (sexp_of_copy_details details); *)
       let id = Sha256.to_hex (Sha256.string (Sexplib.Sexp.to_string (sexp_of_copy_details details))) in
-      let res = Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log result_tmp ->
+      let res = Store.build t.store ?switch ~base ~id ~log ~meta:[] (fun ~cancelled ~log result_tmp ->
           let argv = `Run ["tar"; "-xf"; "-"] in
           let config = Config.v
               ~cwd:"/"
@@ -272,10 +275,10 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
         let result =
           let { Context.switch; workdir; user; env; shell; log; src_dir = _; scope = _; secrets } = context in
           resolve_secrets secrets mount_secrets |> Result.map @@ fun mount_secrets ->
-          (switch, { base; workdir; user; env; cmd; shell; network; mount_secrets }, log)
+            (switch, { base; workdir; user; env; cmd; shell; network; mount_secrets; rom }, log)
         in
         Lwt.return result >>!= fun (switch, run_input, log) ->
-        run t ~switch ~log ~cache ~rom run_input >>= fun base ->
+        run t ~switch ~log ~cache run_input >>= fun base ->
         match base with
         | Ok base -> k ~base ~context
         | Error _ as e -> Lwt.return e
@@ -319,7 +322,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
       Lwt_result.return (base, ctx)
     | `Image base ->
       let id = Sha256.to_hex (Sha256.string base) in
-      Store.build t.store ~id ~log (fun ~cancelled:_ ~log tmp ->
+      Store.build t.store ~id ~log ~meta:[ ":obuilder-run-input", Fmt.str "(from %s)" base ] (fun ~cancelled:_ ~log tmp ->
           Log.info (fun f -> f "Base image not present; importing %S…" base);
           let rootfs = tmp / "rootfs" in
           Os.sudo ["mkdir"; "-m"; "755"; "--"; rootfs] >>= fun () ->
@@ -355,7 +358,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
 
   let shell t ?unix_sock ?stdin id =
     let stdin = Option.map (fun stdin -> Os.{ raw = stdin; needs_close = false }) stdin in
-    let rinput = { base = ""; workdir = "/"; user = Obuilder_spec.(`Unix { uid = 1000; gid = 1000 }); env = []; cmd = ""; shell = [ "sh" ]; network = [ "host" ]; mount_secrets = [] } in
+    let rinput = { base = ""; workdir = "/"; user = Obuilder_spec.(`Unix { uid = 1000; gid = 1000 }); env = []; cmd = ""; shell = [ "sh" ]; network = [ "host" ]; mount_secrets = []; rom = [] } in
     let established, shell_established = Lwt.wait () in
     let f = run_shell t ?unix_sock ~shell_established ~switch:None ?stdin ~cache:[] ~rom:[] id rinput in
     established, f
@@ -455,14 +458,16 @@ module Make_Docker (Raw_store : S.STORE) = struct
   } [@@deriving sexp_of]
 
   let run t ~switch ~log ~cache run_input =
+    let input = sexp_of_run_input run_input in
+    let string_input = Sexplib.Sexp.to_string input in 
     let id =
-      sexp_of_run_input run_input
+      input
       |> Sexplib.Sexp.to_string_mach
       |> Sha256.string
       |> Sha256.to_hex
     in
     let { base; workdir; user; env; cmd; shell; network; mount_secrets; rom } = run_input in
-    Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log _ ->
+    Store.build t.store ?switch ~base ~id ~log ~meta:[ ":obuilder-run-input", string_input ] (fun ~cancelled ~log _ ->
         let to_release = ref [] in
         Lwt.finalize
           (fun () ->
@@ -544,8 +549,9 @@ module Make_Docker (Raw_store : S.STORE) = struct
       } in
       let dst_dir = match op with `Copy_items (_, dst_dir) when Sys.win32 -> Some dst_dir | _ -> None in
       (* Fmt.pr "COPY: %a@." Sexplib.Sexp.pp_hum (sexp_of_copy_details details); *)
-      let id = Sha256.to_hex (Sha256.string (Sexplib.Sexp.to_string (sexp_of_copy_details details))) in
-      Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log _ ->
+      let copy_details = Sexplib.Sexp.to_string (sexp_of_copy_details details) in
+      let id = Sha256.to_hex (Sha256.string copy_details) in
+      Store.build t.store ?switch ~base ~id ~log ~meta:[ ":obuilder-run-input", copy_details ] (fun ~cancelled ~log _ ->
           match src_dir with
           | `Context src_dir ->
             Docker_sandbox.copy_from_context t.sandbox ~cancelled ~log op ~user ~src_dir ?dst_dir id
@@ -621,7 +627,7 @@ module Make_Docker (Raw_store : S.STORE) = struct
       Lwt_result.return (base, env)
     | `Image base ->
       let id = Sha256.to_hex (Sha256.string base) in
-      Store.build t.store ~id ~log (fun ~cancelled:_ ~log:_ _ ->
+      Store.build t.store ~id ~log ~meta:[":obuilder-run-input", Fmt.str "(from %s)" base ] (fun ~cancelled:_ ~log:_ _ ->
           Log.info (fun f -> f "Base image not present; importing %S…" base);
           Docker.Cmd.pull (`Docker_image base) >>= fun () ->
           Docker.Cmd.tag (`Docker_image base) (Docker.docker_image id) >>= fun () ->
