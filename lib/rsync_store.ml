@@ -193,3 +193,5 @@ let delete_cache t name =
 
 (* Don't think this applies to rsync *)
 let complete_deletes _t = Lwt.return_unit
+
+let get_meta _t _id _key = failwith "Meta data not supported"

@@ -54,6 +54,10 @@ module type STORE = sig
   (** [state_dir] is the path of a directory which can be used to store mutable
       state related to this store (e.g. an sqlite3 database). *)
 
+  val get_meta : t -> id -> string -> string option Lwt.t
+  (* [get_meta t id key] will attempt to retrieve meta data associated with [key]
+     for build [id] *)
+
   val cache :
     user:Obuilder_spec.user ->
     t ->

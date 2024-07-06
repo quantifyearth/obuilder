@@ -229,3 +229,5 @@ let state_dir = Path.state
 
 let complete_deletes t =
   Btrfs.subvolume_sync t.root
+
+let get_meta _t _id _key = failwith "Meta data not supported"

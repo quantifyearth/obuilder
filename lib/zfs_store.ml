@@ -144,6 +144,12 @@ module Zfs = struct
       Os.sudo ["zfs"; "set"; "-u"; Fmt.str "%s=%s" p v; Dataset.full_name t ds ]
     in
     Lwt_list.iter_s (fun (p, v) -> set p v) props
+ 
+  let get ds prop =
+    Os.pread ["zfs"; "get"; prop; ds; "-o"; "value" ] >|= fun s ->
+    match String.split_on_char '\n' s with
+    | [ "VALUE"; "-" ] -> None
+    | "VALUE" :: rest -> Some (String.concat "\n" rest) 
 
   let destroy t ds mode =
     let opts =
@@ -437,3 +443,9 @@ let delete_cache t name =
 let complete_deletes _t =
   (* The man-page says "Pending changes are generally accounted for within a few seconds" *)
   Lwt_unix.sleep 5.0
+
+let get_meta t id key = 
+  let ds = Dataset.result id in
+  let ds = Dataset.path t ds in
+  Zfs.get ds key
+

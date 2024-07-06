@@ -158,3 +158,5 @@ let delete_cache t name =
   ) else Lwt_result.return ()
 
 let complete_deletes _t = Lwt.return_unit
+
+let get_meta _t _id _key = failwith "Meta data not supported"

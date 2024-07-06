@@ -219,3 +219,5 @@ let complete_deletes t =
   ignore t;
   (* FIXME: how to implement this? *)
   Lwt.return_unit
+
+let get_meta _t _id _key = failwith "Meta data not supported"
