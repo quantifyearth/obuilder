@@ -1,6 +1,6 @@
 open Sexplib.Std
 
-type id = string [@@deriving sexp_of]
+type id = string [@@deriving sexp]
 
 type tag = [
   | `Heading    (** Introduces a new build step *)
@@ -9,6 +9,18 @@ type tag = [
 ]
 
 type logger = tag -> string -> unit
+
+type run_input = {
+    base : id;
+    workdir : string;
+    user : Obuilder_spec.user;
+    env : Config.env;
+    cmd : string;
+    shell : string list;
+    network : string list;
+    mount_secrets : Config.Secret.t list;
+    rom : Obuilder_spec.Rom.t list;
+} [@@deriving sexp]
 
 module type STORE = sig
   type t

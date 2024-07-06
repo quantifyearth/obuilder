@@ -71,7 +71,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) (Fetch : S.FETCHER) = st
     network : string list;
     mount_secrets : Config.Secret.t list;
     rom : Obuilder_spec.Rom.t list;
-  } [@@deriving sexp_of]
+  } [@@deriving sexp]
 
   let run t ~switch ~log ~cache run_input =
     let input = sexp_of_run_input run_input in
