@@ -104,7 +104,7 @@ end = struct
         else strf "%s%s/.zfs/snapshot/%s" t.prefix (dataset_no_pool t.subdir ds) snapshot
 
   let exists_raw raw =
-    Lwt_process.pread ("", [| "zfs"; "list"; "-p"; "-H"; raw |]) >>= function
+    Lwt_process.pread ~stderr:`Dev_null ("", [| "zfs"; "list"; "-p"; "-H"; raw |]) >>= function
     | "" -> Lwt.return false
     | _ -> Lwt.return true
 
@@ -173,7 +173,7 @@ module Zfs = struct
     Os.sudo ["zfs"; "clone"; "--"; Dataset.full_name t src ~snapshot; Dataset.full_name t dst]
 
   let mounted ?snapshot t ~ds =
-    Lwt_process.pread ("", [| "zfs"; "get"; "-pH"; "mounted"; Dataset.full_name t ds ?snapshot |]) >>= fun s ->
+    Lwt_process.pread ~stderr:`Dev_null ("", [| "zfs"; "get"; "-pH"; "mounted"; Dataset.full_name t ds ?snapshot |]) >>= fun s ->
     match ( Scanf.sscanf s "%s %s %s %s" (fun _ _ yesno _ -> yesno = "yes") ) with
     | state -> Lwt.return state
     | exception Scanf.Scan_failure _ -> Lwt.return false
@@ -182,7 +182,7 @@ module Zfs = struct
     mounted t ~ds ?snapshot >>= fun m ->
     if not m then
       let pp _ ppf = Fmt.pf ppf "zfs mount" in
-      let* t = Os.sudo_result ~pp:(pp "zfs mount") ~is_success:(fun n -> n = 0 || n = 16) ["zfs"; "mount"; "--"; Dataset.full_name t ds ?snapshot] in
+      let* t = Os.sudo_result ~stdout:`Dev_null ~stderr:`Dev_null ~pp:(pp "zfs mount") ~is_success:(fun n -> n = 0 || n = 16) ["zfs"; "mount"; "--"; Dataset.full_name t ds ?snapshot] in
         match t with
         | Ok () -> Lwt.return ()
         | Error (`Msg m) ->
@@ -195,7 +195,7 @@ module Zfs = struct
     Os.sudo ["zfs"; "mount"; Dataset.full_name t dst] >>= fun () ->
     let vol = Dataset.full_name t src in
     let len = String.length vol in
-    Lwt_process.pread ("", [| "zfs"; "list"; "-H"; "-r"; "-o"; "name"; vol |]) >>= fun output ->
+    Lwt_process.pread ~stderr:`Dev_null ("", [| "zfs"; "list"; "-H"; "-r"; "-o"; "name"; vol |]) >>= fun output ->
     String.split_on_char '\n' output |> List.map (fun s -> (s, String.length s)) |>
       List.filter (fun (_, l) -> l > len) |> List.map (fun (s, l) -> String.sub s (len + 1) (l - len - 1)) |>
       Lwt_list.iter_s (fun subvolume -> Os.sudo ["zfs"; "clone"; "-o"; "mountpoint=none"; "--";
@@ -226,7 +226,7 @@ let state_dir t = Dataset.path t Dataset.state
 let root t = t.pool
 
 let df t =
-  Lwt_process.pread ("", [| "zpool"; "list"; "-Hp"; "-o"; "capacity"; t.pool |]) >>= fun s ->
+  Lwt_process.pread ~stderr:`Dev_null ("", [| "zpool"; "list"; "-Hp"; "-o"; "capacity"; t.pool |]) >>= fun s ->
   match (String.trim s) with
   | "" -> Lwt.return 0.
   | s -> Lwt.return (100. -. float_of_string s)

@@ -43,6 +43,9 @@ let close_redirection (x : [`FD_move_safely of unix_fd | `Dev_null]) =
   | `FD_move_safely x -> ensure_closed_unix x
   | `Dev_null -> ()
 
+let log_std v =
+  Logs.info (fun f -> f "Stderr %s" (match v with Some `Dev_null -> "DEVNULL" | Some `FD_move_safely _ -> "FD" | None -> "none"))
+
 (* stdin, stdout and stderr are copied to the child and then closed on the host.
    They are closed at most once, so duplicates are OK. *)
 let default_exec ?timeout ?cwd ?stdin ?stdout ?stderr ~pp argv =
@@ -50,7 +53,7 @@ let default_exec ?timeout ?cwd ?stdin ?stdout ?stderr ~pp argv =
     let stdin  = Option.map redirection stdin in
     let stdout = Option.map redirection stdout in
     let stderr = Option.map redirection stderr in
-    try Lwt_result.ok (Lwt_process.exec ?timeout ?cwd ?stdin ?stdout ?stderr argv)
+    try Lwt_result.ok (Lwt_process.exec ?timeout ?cwd ?stdin ?stdout ~stderr:`Close argv)
     with e -> Lwt_result.fail e
   in
   Option.iter close_redirection stdin;
@@ -102,6 +105,7 @@ let exec_result ?cwd ?stdin ?stdout ?stderr ~pp ?(is_success=((=) 0)) ?(cmd="") 
 
 let exec ?timeout ?cwd ?stdin ?stdout ?stderr ?(is_success=((=) 0)) ?(cmd="") argv =
   Logs.info (fun f -> f "Exec %a" pp_cmd (cmd, argv));
+  log_std stderr;
   let pp f = pp_cmd f (cmd, argv) in
   !lwt_process_exec ?timeout ?cwd ?stdin ?stdout ?stderr ~pp (cmd, Array.of_list argv) >>= function
   | Ok n when is_success n -> Lwt.return_unit
@@ -110,13 +114,13 @@ let exec ?timeout ?cwd ?stdin ?stdout ?stderr ?(is_success=((=) 0)) ?(cmd="") ar
 
 let running_as_root = not (Sys.unix) || Unix.getuid () = 0
 
-let sudo ?stdin args =
+let sudo ?(stdout=`Dev_null) ?stdin args =
   let args = if running_as_root then args else "sudo" :: "--" :: args in
-  exec ?stdin args
+  exec ?stdin ~stdout ~stderr:`Dev_null args
 
 let sudo_result ?cwd ?stdin ?stdout ?stderr ?is_success ~pp args =
   let args = if running_as_root then args else "sudo" :: "--" :: args in
-  exec_result ?cwd ?stdin ?stdout ?stderr ?is_success ~pp args
+  exec_result ?cwd ?stdin ?stdout ~stderr:`Dev_null ?is_success ~pp args
 
 let rec write_all fd buf ofs len =
   assert (len >= 0);
