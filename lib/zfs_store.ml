@@ -140,10 +140,17 @@ module Zfs = struct
     Os.sudo ["zfs"; "create"; "--"; ds ]
 
   let set t ds props =
+    let filtered_props =
+      List.filter_map (fun (k, v) ->
+        if String.length v > 1024 then begin
+          Logs.warn (fun f -> f "Property too long! (%s, %s)" k v);
+          None
+        end else Some (k ,v)) props 
+    in
     let set p v =
       Os.sudo ["zfs"; "set"; "-u"; Fmt.str "%s=%s" p v; Dataset.full_name t ds ]
     in
-    Lwt_list.iter_s (fun (p, v) -> set p v) props
+    Lwt_list.iter_s (fun (p, v) -> set p v) filtered_props
  
   let get ds prop =
     Os.pread ["zfs"; "get"; prop; ds; "-o"; "value" ] >|= fun s ->
