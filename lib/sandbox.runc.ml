@@ -207,7 +207,7 @@ module Json_config = struct
             "noexec";
             "nodev";
             "mode=1777";
-            "size=65536k";
+            "size=65536m";
           ] ::
         mount "/dev/mqueue"
           ~ty:"mqueue"
