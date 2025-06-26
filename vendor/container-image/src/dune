@@ -16,4 +16,4 @@
   decompress.gz
   eio.unix
   osrelease
-  mirage-crypto-rng-eio))
+  mirage-crypto-rng.unix))

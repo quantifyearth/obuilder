@@ -2,7 +2,7 @@ let null_auth ?ip:_ ~host:_ _ =
   Ok None (* Warning: use a real authenticator in your code! *)
 
 let https ~authenticator =
-  let tls_config = Tls.Config.client ~authenticator () in
+  let tls_config = Result.get_ok @@ Tls.Config.client ~authenticator () in
   fun uri raw ->
     let host =
       Uri.host uri

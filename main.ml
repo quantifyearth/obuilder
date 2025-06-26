@@ -234,7 +234,7 @@ let cmds env = [build env; run env; delete env; clean env; dockerfile; healthche
 
 let () =
   Eio_main.run @@ fun env ->
-  Mirage_crypto_rng_eio.run (module Mirage_crypto_rng.Fortuna) env @@ fun () ->
+  Mirage_crypto_rng_unix.use_default ();
   let doc = "a command-line interface for OBuilder" in
   let info = Cmd.info ~doc "obuilder" in
   exit (Cmd.eval @@ Cmd.group info (cmds env))
